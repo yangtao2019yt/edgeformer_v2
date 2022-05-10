@@ -4,12 +4,17 @@ import torch.nn.functional as F
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.registry import register_model
 
-from .modules.gcc_cvx_lg_modules import gcc_cvx_lg_Block_2stage_res, Block, LayerNorm, gcc_Conv2d
+from .modules.gcc_cvx_lg_modules import Block, LayerNorm, gcc_Conv2d
+from .modules.gcc_cvx_lg_modules import gcc_cvx_lg_Block_2stage_res_v1
+from .modules.gcc_cvx_lg_modules import gcc_cvx_lg_Block_2stage_res_v2
+from .modules.gcc_cvx_lg_modules import gcc_cvx_lg_Block_2stage_res_v3
+from .modules.gcc_cvx_lg_modules import gcc_cvx_lg_Block_2stage_res_v4
 
 class ConvNeXt_cvx_lg_gcc_res(nn.Module):
     def __init__(self, in_chans=3, num_classes=1000, 
                  depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], drop_path_rate=0., 
                  layer_scale_init_value=1e-6, head_init_scale=1.,
+                 version="v1"   # 3 version of module with skip-conection added
                  ):
         super().__init__()
         # super(ConvNeXt_cvx_lg_gcc, self).__init__()
@@ -38,7 +43,7 @@ class ConvNeXt_cvx_lg_gcc_res(nn.Module):
                     for j in range(depths[i])
                 ])
             else:       # for stage 2 and 3, gcc modules is used
-                gcc_Block = gcc_cvx_lg_Block_2stage_res
+                gcc_Block = eval(f"gcc_cvx_lg_Block_2stage_res_{version}")
                 stage = nn.Sequential(*[
                     gcc_Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value,
                         meta_kernel_size=stages_fs[i], instance_kernel_method=None, use_pe=True) \
@@ -76,8 +81,29 @@ class ConvNeXt_cvx_lg_gcc_res(nn.Module):
         return x
 
 @register_model
-def convnext_gcc_cvx_lg_res_tt(pretrained=False,in_22k=False, **kwargs):
-    model = ConvNeXt_cvx_lg_gcc_res(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], **kwargs)
+def convnext_gcc_cvx_lg_res_tt_v1(pretrained=False,in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_lg_gcc_res(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], version="v1", **kwargs)
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
+def convnext_gcc_cvx_lg_res_tt_v2(pretrained=False,in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_lg_gcc_res(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], version="v2", **kwargs)
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
+def convnext_gcc_cvx_lg_res_tt_v3(pretrained=False,in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_lg_gcc_res(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], version="v3", **kwargs)
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
+def convnext_gcc_cvx_lg_res_tt_v4(pretrained=False,in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_lg_gcc_res(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], version="v4", **kwargs)
     if pretrained or in_22k:
         raise NotImplementedError("no pretrained model")
     return model

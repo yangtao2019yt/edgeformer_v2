@@ -23,28 +23,27 @@ class gcc_Conv2d(nn.Module):
         if self.use_pe:
             trunc_normal_(self.meta_pe, std=.02)
 
-    def get_instance_kernel(self, instance_kernel_size):
+    def get_instance_kernel(self, instance_kernel_size_2):
         # if no use of dynamic resolution, keep a static kernel
         if self.instance_kernel_method is None:
             return  self.weight
         elif self.instance_kernel_method == 'interpolation_bilinear':
-            instance_kernel_size_2 =  (instance_kernel_size, 1) if self.type=='H' else (1, instance_kernel_size)
+            instance_kernel_size_2 =  (instance_kernel_size_2[0], 1) if self.type=='H' else (1, instance_kernel_size_2[1])
             return  F.interpolate(self.weight, instance_kernel_size_2, mode='bilinear', align_corners=True)
         
-    def get_instance_pe(self, instance_kernel_size):
+    def get_instance_pe(self, instance_kernel_size_2):
         # if no use of dynamic resolution, keep a static kernel
         if self.instance_kernel_method is None:
             return  self.meta_pe
         elif self.instance_kernel_method == 'interpolation_bilinear':
-            instance_kernel_size_2 =  (instance_kernel_size, 1) if self.type=='H' else (1, instance_kernel_size)
             return  F.interpolate(self.meta_pe, instance_kernel_size_2, mode='bilinear', align_corners=True)\
-                        .expand(1, self.dim, instance_kernel_size, instance_kernel_size)
+                        .expand(1, self.dim, *instance_kernel_size_2)
 
     def forward(self, x):
-        _, _, f_s, _ = x.shape
+        _, _, H, W = x.shape
         if self.use_pe:
-            x = x + self.get_instance_pe(f_s)
-        weight = self.get_instance_kernel(f_s)
+            x = x + self.get_instance_pe((H, W))
+        weight = self.get_instance_kernel((H, W))
         x_cat = torch.cat((x, x[:, :, :-1, :]), dim=2) if self.type=='H' else torch.cat((x, x[:, :, :, :-1]), dim=3)
         x = F.conv2d(x_cat, weight=weight, bias=self.bias, padding=0, groups=self.dim)
         return x
@@ -77,7 +76,7 @@ class gcc_cvx_Block(nn.Module):
 
     def forward(self, x):
         input = x
-        x_1, x_2 = torch.chunk(x, 2, 1)
+        x_1, x_2 = torch.chunk(x, 2, dim=1)
         x_1, x_2 = self.gcc_conv_1H(x_1), self.gcc_conv_2W(x_2)
         x = torch.cat((x_1, x_2), dim=1)
         x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
@@ -127,11 +126,9 @@ class gcc_cvx_Block_2stage(nn.Module):
         input = x
         x_1, x_2 = torch.chunk(x, 2, dim=1)
         # branch1   ..->H->W->..
-        x_1 = self.gcc_conv_1H(x_1)
-        x_1 = self.gcc_conv_1W(x_1)
+        x_1 = self.gcc_conv_1W(self.gcc_conv_1H(x_1))
         # branch2   ..->W->H->..
-        x_2 = self.gcc_conv_2W(x_2)
-        x_2 = self.gcc_conv_2H(x_2)
+        x_2 = self.gcc_conv_2H(self.gcc_conv_2W(x_2))
         x = torch.cat((x_1, x_2), dim=1)
         x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
         x = self.norm(x)

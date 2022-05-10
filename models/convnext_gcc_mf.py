@@ -41,7 +41,7 @@ class ConvNeXt_mf_gcc(nn.Module):
                 stage = nn.Sequential(*[
                     # using static global kernel
                     gcc_mf_Block(dim=dims[i]//2, instance_kernel_method=None, meta_kernel_size=stages_fs[i], 
-                        use_pe=True, mid_mix=False, bias=True, ffn_dim=dims[i], ffn_dropout=0.0, dropout=0.1)
+                        use_pe=True, mid_mix=False, bias=True, ffn_dim=dims[i]*4, ffn_dropout=0.0, dropout=0.1)
                     # if depths[i]//3 < j+1 <= 2*depths[i]//3 else \
                     if 2*depths[i]//3 < j+1 else \
                     Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value) \
