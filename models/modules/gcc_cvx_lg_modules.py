@@ -415,7 +415,7 @@ class gcc_cvx_lg_Block_2stage_res_v4(nn.Module):
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.pwconv2(x)
-        x = x.permute(0, 3, 1, 2) # keep N x C x W x H format before BN layer
+        x = x.permute(0, 3, 1, 2) # keep N x C x H x W format before BN layer
         x = self.norm_c(x)
         x = input + self.drop_path(x)
 
