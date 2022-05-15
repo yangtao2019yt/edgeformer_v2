@@ -8,13 +8,14 @@ from .modules.gcc_cvx_modules import Block, LayerNorm, gcc_Conv2d
 from .modules.gcc_cvx_modules import gcc_cvx_test_Block_v1
 from .modules.gcc_cvx_modules import gcc_cvx_test_Block_v2
 from .modules.gcc_cvx_modules import gcc_cvx_test_Block_v3
+from .modules.gcc_cvx_modules import gcc_cvx_test_Block_v4
 
 class ConvNeXt_cvx_gcc_test(nn.Module):
     def __init__(self, in_chans=3, num_classes=1000, 
                  depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], drop_path_rate=0., 
                  layer_scale_init_value=1e-6, head_init_scale=1.,
                  gcc_stage=1,
-                 version="v1"   # 3 version of gcc_cvx-based test module added
+                 version="v1"   # 4 version of gcc_cvx-based test module added
                  ):
         super().__init__()
 
