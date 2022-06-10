@@ -42,11 +42,10 @@ class ConvNeXt_mf_gcc(nn.Module):
                     # using static global kernel
                     gcc_mf_Block(dim=dims[i]//2, instance_kernel_method=None, meta_kernel_size=stages_fs[i], 
                         use_pe=True, mid_mix=False, bias=True, ffn_dim=dims[i]*4, ffn_dropout=0.0, dropout=0.1)
-                    # if depths[i]//3 < j+1 <= 2*depths[i]//3 else \
                     if 2*depths[i]//3 < j+1 else \
                     Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value) \
                     for j in range(depths[i]) # here we use gcc in the last 1/3 blocks
-                ])                            # e.g., j+1=7 > 9-9//3=6, so block 678 is gcc_block, where block 0~5 is normal
+                ])                            # e.g., j+1=7 > 9-9//3=6, so block 678 is gcc_block, while block 0~5 is normal
             self.stages.append(stage)
             cur += depths[i]
 

@@ -10,7 +10,7 @@ class ConvNeXt_cvx_gcc(nn.Module):
     def __init__(self, in_chans=3, num_classes=1000, 
                  depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], drop_path_rate=0., 
                  layer_scale_init_value=1e-6, head_init_scale=1.,
-                 gcc_stage=1
+                 gcc_stage=1, block_replace_mode="last_1/3"
                  ):
         super().__init__()
         # super(ConvNeXt_cvx_gcc, self).__init__()
@@ -40,14 +40,17 @@ class ConvNeXt_cvx_gcc(nn.Module):
                 ])
             else:       # for stage 2 and 3, gcc modules is used
                 gcc_Block = gcc_cvx_Block_2stage if gcc_stage==2 else gcc_cvx_Block
-                stage = nn.Sequential(*[
+                if block_replace_mode == "last_1/3": # here we use gcc in the last 1/3 blocks
+                    lo = 2*depths[i]//3 # e.g. in stage3, j+1=7 > lo=2*9//3=6, so block 678 is gcc_block, while block 0-5 is normal
+                elif block_replace_mode == "last_2/3": # here we use gcc in the last 2/3 blocks
+                    lo = depths[i]//3 # e.g. in stage3, j+1=4 > lo=9//3=3, so block 4-8 is gcc_block, while block 0-3 is normal
+                stage = nn.Sequential(*[    
                     gcc_Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value,
                         meta_kernel_size=stages_fs[i], instance_kernel_method=None, use_pe=True) \
-                    # if depths[i]//3 < j+1 <= 2*depths[i]//3 else \
-                    if 2*depths[i]//3 < j+1 else \
+                    if lo < j+1 else \
                     Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value) \
-                    for j in range(depths[i]) # here we use gcc in the last 1/3 blocks
-                ])                            # e.g., j+1=7 > 9-9//3=6, so block 678 is gcc_block, where block 0~5 is normal
+                    for j in range(depths[i])
+                ])
             self.stages.append(stage)
             cur += depths[i]
 
@@ -84,6 +87,13 @@ def convnext_gcc_cvx_tt_2stage(pretrained=False,in_22k=False, **kwargs):
     return model
 
 @register_model
+def convnext_gcc_cvx_ttt(pretrained=False,in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_gcc(depths=[3, 3, 9, 3], dims=[24, 48, 96, 192], gcc_stage=1,**kwargs)
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
 def convnext_gcc_cvx_tt(pretrained=False,in_22k=False, **kwargs):
     model = ConvNeXt_cvx_gcc(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], gcc_stage=1,**kwargs)
     if pretrained or in_22k:
@@ -91,8 +101,36 @@ def convnext_gcc_cvx_tt(pretrained=False,in_22k=False, **kwargs):
     return model
 
 @register_model
+def convnext_gcc_cvx_tt_2of3(pretrained=False, in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_gcc(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], block_replace_mode="last_2/3", **kwargs)
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
+def convnext_gcc_cvx_tt_nad(pretrained=False, in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_gcc(depths=[3, 9, 36, 6], dims=[56, 112, 224, 448], **kwargs) # set basic-channel-num as 56
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
+def convnext_gcc_cvx_tiny_nad(pretrained=False, in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_gcc(depths=[3, 6, 18, 3], dims=[64, 128, 256, 512], **kwargs) # set basic-channel-num as 64
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
 def convnext_gcc_cvx_tiny(pretrained=False,in_22k=False, **kwargs):
     model = ConvNeXt_cvx_gcc(depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], **kwargs)
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
+def convnext_gcc_cvx_tiny_2of3(pretrained=False,in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_gcc(depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], block_replace_mode="last_2/3", **kwargs)
     if pretrained or in_22k:
         raise NotImplementedError("no pretrained model")
     return model

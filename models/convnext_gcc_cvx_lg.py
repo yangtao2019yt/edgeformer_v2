@@ -43,11 +43,10 @@ class ConvNeXt_cvx_lg_gcc(nn.Module):
                 stage = nn.Sequential(*[
                     gcc_Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value,
                         meta_kernel_size=stages_fs[i], instance_kernel_method=None, use_pe=True) \
-                    # if depths[i]//3 < j+1 <= 2*depths[i]//3 else \
                     if 2*depths[i]//3 < j+1 else \
                     Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value) \
                     for j in range(depths[i]) # here we use gcc in the last 1/3 blocks
-                ])                            # e.g., j+1=7 > 2*9//3=6, so block 678 is gcc_block, where block 0~5 is normal
+                ])                            # e.g., j+1=7 > 2*9//3=6, so block 678 is gcc_block, while block 0~5 is normal
             self.stages.append(stage)
             cur += depths[i]
 

@@ -156,8 +156,29 @@ model_urls = {
 }
 
 @register_model
+def convnext_ttt(pretrained=False,in_22k=False, **kwargs):
+    model = ConvNeXt(depths=[3, 3, 9, 3], dims=[24, 48, 96, 192], **kwargs)
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
 def convnext_tt(pretrained=False,in_22k=False, **kwargs):
     model = ConvNeXt(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], **kwargs)
+    if pretrained:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
+def convnext_tt_nad(pretrained=False, in_22k=False, **kwargs):
+    model = ConvNeXt(depths=[3, 9, 36, 6], dims=[56, 112, 224, 448], **kwargs) # set basic-channel-num as 56
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
+def convnext_tiny_nad(pretrained=False, in_22k=False, **kwargs):
+    model = ConvNeXt(depths=[3, 6, 18, 3], dims=[64, 128, 256, 512], **kwargs)   # set basic-channel-num as 64
     if pretrained:
         raise NotImplementedError("no pretrained model")
     return model

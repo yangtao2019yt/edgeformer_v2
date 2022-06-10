@@ -6,22 +6,22 @@ from timm.models.layers import trunc_normal_, DropPath
 
 # Convnext like Blocks (trunc_normal weight init)
 class gcc_Conv2d(nn.Module):
-    def __init__(self, dim, type, meta_kernel_size, instance_kernel_method=None, use_pe=True):
+    def __init__(self, dim, type, meta_kernel_size, instance_kernel_method=None, bias=True, use_pe=True):
         super().__init__()
         # super(gcc_Conv2d, self).__init__()
         self.type = type    # H or W
         self.dim = dim
         self.instance_kernel_method = instance_kernel_method
-        self.use_pe = use_pe
         self.meta_kernel_size_2 = (meta_kernel_size, 1) if self.type=='H' else (1, meta_kernel_size)
         self.weight  = nn.Conv2d(dim, dim, kernel_size=self.meta_kernel_size_2, groups=dim).weight
-        self.bias    = nn.Parameter(torch.randn(dim))
+        self.bias    = nn.Parameter(torch.randn(dim)) if bias else None
         self.meta_pe = nn.Parameter(torch.randn(1, dim, *self.meta_kernel_size_2)) if use_pe else None
 
     def gcc_init(self):
         trunc_normal_(self.weight, std=.02)
-        nn.init.constant_(self.bias, 0)
-        if self.use_pe:
+        if self.bias is not None:
+            nn.init.constant_(self.bias, 0)
+        if self.meta_pe is not None:
             trunc_normal_(self.meta_pe, std=.02)
 
     def get_instance_kernel(self, instance_kernel_size_2):
@@ -42,7 +42,7 @@ class gcc_Conv2d(nn.Module):
 
     def forward(self, x):
         _, _, H, W = x.shape
-        if self.use_pe:
+        if self.meta_pe is not None:
             x = x + self.get_instance_pe((H, W))
         weight = self.get_instance_kernel((H, W))
         x_cat = torch.cat((x, x[:, :, :-1, :]), dim=2) if self.type=='H' else torch.cat((x, x[:, :, :, :-1]), dim=3)
@@ -325,18 +325,17 @@ class gcc_cvx_test_Block_v3(nn.Module):
 
 # v4 used preparameter skill for GCC
 class rep_gcc_Conv2d(nn.Module):
-    def __init__(self, dim, type, meta_kernel_size, rep_kernel_size, instance_kernel_method=None, use_pe=True):
+    def __init__(self, dim, type, meta_kernel_size, rep_kernel_size, instance_kernel_method=None, bias=True, use_pe=True):
         super().__init__()
         self.type = type    # H or W
         self.dim = dim
         self.instance_kernel_method = instance_kernel_method
         assert instance_kernel_method is None # Rep-GCC cannot support DY resolution for now!
-        self.use_pe = use_pe
         self.meta_kernel_size_2 = (meta_kernel_size, 1) if self.type=='H' else (1, meta_kernel_size)
         self.meta_pe = nn.Parameter(torch.randn(1, dim, *self.meta_kernel_size_2)) if use_pe else None
         # GCC Parameters
         self.weight  = nn.Conv2d(dim, dim, kernel_size=self.meta_kernel_size_2, groups=dim).weight
-        self.bias    = nn.Parameter(torch.randn(dim))
+        self.bias    = nn.Parameter(torch.randn(dim)) if bias else None
         # Rep Kernel Parametrs
         self.rep_kernel_size = rep_kernel_size
         self.rep_kernel_size_2 = (rep_kernel_size, 1) if self.type=='H' else (1, rep_kernel_size)
@@ -345,8 +344,9 @@ class rep_gcc_Conv2d(nn.Module):
     def gcc_init(self): # notice should also init rep-kernel
         trunc_normal_(self.weight, std=.02)
         trunc_normal_(self.rep_weight, std=.02)
-        nn.init.constant_(self.bias, 0)
-        if self.use_pe:
+        if self.bias is not None:
+            nn.init.constant_(self.bias, 0)
+        if self.meta_pe is not None:
             trunc_normal_(self.meta_pe, std=.02)
 
     def get_instance_kernel(self, instance_kernel_size_2):
@@ -367,7 +367,7 @@ class rep_gcc_Conv2d(nn.Module):
 
     def forward(self, x):
         _, _, H, W = x.shape
-        if self.use_pe:
+        if self.meta_pe is not None:
             x = x + self.get_instance_pe((H, W))
         # Rep Kernel branch
         x_cat = torch.cat((x, x[:, :, :self.rep_kernel_size-1, :]), dim=2) if self.type=='H'\
