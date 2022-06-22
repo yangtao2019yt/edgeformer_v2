@@ -9,6 +9,7 @@ from .modules.gcc_cvx_modules import gcc_cvx_test_Block_v1
 from .modules.gcc_cvx_modules import gcc_cvx_test_Block_v2
 from .modules.gcc_cvx_modules import gcc_cvx_test_Block_v3
 from .modules.gcc_cvx_modules import gcc_cvx_test_Block_v4
+from .modules.gcc_cvx_modules import gcc_cvx_test_Block_v5
 
 class ConvNeXt_cvx_gcc_test(nn.Module):
     def __init__(self, in_chans=3, num_classes=1000, 
@@ -103,6 +104,13 @@ def convnext_gcc_cvx_test_tt_v3(pretrained=False,in_22k=False, **kwargs):
 @register_model
 def convnext_gcc_cvx_test_tt_v4(pretrained=False,in_22k=False, **kwargs):
     model = ConvNeXt_cvx_gcc_test(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], version="v4", **kwargs)
+    if pretrained or in_22k:
+        raise NotImplementedError("no pretrained model")
+    return model
+
+@register_model
+def convnext_gcc_cvx_test_tt_v5(pretrained=False,in_22k=False, **kwargs):
+    model = ConvNeXt_cvx_gcc_test(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], version="v5", **kwargs)
     if pretrained or in_22k:
         raise NotImplementedError("no pretrained model")
     return model

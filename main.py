@@ -36,6 +36,7 @@ import models.convnext_gcc_cvx
 import models.convnext_gcc_mf_lg
 import models.convnext_gcc_cvx_lg
 import models.convnext_gcc_cvx_lg_res
+import models.convnext_gcc_cvx_test
 # dygcc
 import models.convnext_dygcc_cvx
 

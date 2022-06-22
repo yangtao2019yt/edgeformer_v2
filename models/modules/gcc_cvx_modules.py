@@ -451,6 +451,71 @@ class gcc_cvx_test_Block_v4(nn.Module):
         x = input + self.drop_path(x)
         return x
 
+# v5 is local & global test, group-norm, identical channels
+class gcc_cvx_test_Block_v5(nn.Module):
+    def __init__(self,
+        dim,
+        drop_path=0.,
+        layer_scale_init_value=1e-6,
+        meta_kernel_size=16,
+        local_kernel_size=7,
+        instance_kernel_method=None,
+        use_pe=True
+    ):
+        super().__init__()
+        # identical part, takes 1/4 in v5
+        self.norm_id = LayerNorm(dim//4, eps=1e-6)
+        # local part, takes 1/4 in v5
+        self.dwconv = nn.Conv2d(dim//4, dim//4, kernel_size=local_kernel_size, \
+            padding=(local_kernel_size-1)//2, groups=dim//4) # depthwise conv
+        self.norm_local = LayerNorm(dim//4, eps=1e-6)
+        # global part, branch1 GCC-H, branch2 GCC-W, takes 2/4 in v5
+        self.gcc_conv_1H = gcc_Conv2d(dim//4, type='H', meta_kernel_size=meta_kernel_size,
+            instance_kernel_method=instance_kernel_method, use_pe=use_pe) 
+        self.gcc_conv_2W = gcc_Conv2d(dim//4, type='W', meta_kernel_size=meta_kernel_size,
+            instance_kernel_method=instance_kernel_method, use_pe=use_pe)
+        self.norm_global = LayerNorm(dim//2, eps=1e-6)
+        
+        # PW-Conv
+        self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
+        self.act = nn.GELU()
+        self.pwconv2 = nn.Linear(4 * dim, dim)
+        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim)), 
+                            requires_grad=True) if layer_scale_init_value > 0 else None
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+
+    def forward(self, x):
+        input = x
+
+        x_id, x_local, x_global1, x_global2 = torch.chunk(x, 4, dim=1)
+        
+        # identical part
+        x_id = self.norm_id(x_id.permute(0, 2, 3, 1)).permute(0, 3, 1, 2) # identical-norm
+
+        # local part
+        x_local = self.dwconv(x_local)
+        x_local = self.norm_local(x_local.permute(0, 2, 3, 1)).permute(0, 3, 1, 2) # local-norm
+        
+        # global part, branch1 GCC-H, branch2 GCC-W, takes 2/3 in v2
+        x_global1, x_global2 = self.gcc_conv_1H(x_global1), self.gcc_conv_2W(x_global2)
+        # global fusion
+        x_global = torch.cat((x_global1, x_global2), dim=1)
+        x_global = self.norm_global(x_global.permute(0, 2, 3, 1)).permute(0, 3, 1, 2) # global-norm
+
+        # local & global fusion
+        x = torch.cat((x_id, x_local, x_global), dim=1)
+
+        x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
+        x = self.pwconv1(x)
+        x = self.act(x)
+        x = self.pwconv2(x)
+        if self.gamma is not None:
+            x = self.gamma * x
+        x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
+
+        x = input + self.drop_path(x)
+        return x
+
 class Block(nn.Module):
     def __init__(self, dim, drop_path=0., layer_scale_init_value=1e-6):
         super().__init__()

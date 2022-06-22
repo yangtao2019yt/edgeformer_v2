@@ -40,7 +40,9 @@ class kernel_gen(nn.Module):
                 activation,
                 nn.Linear(kernel_size*channel//reduction, kernel_size*channel, bias=False),
                 # B, C*H -> B, C, H, 1
-                Reshape(shape=(channel, *kernel_size_2), keep_batch=True)
+                Reshape(shape=(channel, *kernel_size_2), keep_batch=True),
+                # FilterNorm
+                FilterNorm(channel, running_std=True, running_mean=True, resolution=kernel_size_2)
             )
         elif gen_type == "CONV":
             self.gen = nn.Sequential(
@@ -48,6 +50,8 @@ class kernel_gen(nn.Module):
                 nn.BatchNorm2d(channel//reduction),
                 activation,
                 nn.Conv2d(channel//reduction, channel, kernel_size=gen_kernel_size_2, padding=gen_kernel_padding_2, bias=False, groups=1),
+                # FilterNorm
+                FilterNorm(channel, running_std=True, running_mean=True, resolution=kernel_size_2)
             )
         elif gen_type == "DW_CONV":
             self.gen = nn.Sequential(
@@ -55,6 +59,8 @@ class kernel_gen(nn.Module):
                 nn.BatchNorm2d(channel),
                 activation,
                 nn.Conv2d(channel, channel, kernel_size=gen_kernel_size_2, padding=gen_kernel_padding_2, bias=False, groups=channel),
+                # FilterNorm
+                FilterNorm(channel, running_std=True, running_mean=True, resolution=kernel_size_2)
             )
         # GAP
         self.gap = nn.AdaptiveAvgPool2d(1)
@@ -86,10 +92,10 @@ class dygcc_Conv2d(nn.Module):
         self.dim = dim
         self.instance_kernel_method = instance_kernel_method
         self.meta_kernel_size_2 = (meta_kernel_size, 1) if self.type=='H' else (1, meta_kernel_size)
-        self.weight_gen = kernel_gen(dim, meta_kernel_size, type=type, gen_type='DW_CONV', act="Hardswish", reduction=1)
+        self.weight_gen = kernel_gen(dim, meta_kernel_size, type=type, gen_type='CONV', act="Hardswish", reduction=4)
         # self.weight  = nn.Conv2d(dim, dim, kernel_size=self.meta_kernel_size_2, groups=dim).weight
-        self.bias    = nn.Parameter(torch.randn(dim)) if bias else None
-        self.meta_pe = nn.Parameter(torch.randn(1, dim, *self.meta_kernel_size_2)) if use_pe else None
+        self.bias    = nn.Parameter(torch.zeros(dim)*1.) if bias else None
+        self.meta_pe = nn.Parameter(torch.zeros(1, dim, *self.meta_kernel_size_2)*1.) if use_pe else None
 
     def gcc_init(self):
         # trunc_normal_(self.weight, std=.02)
@@ -213,3 +219,21 @@ class LayerNorm(nn.Module):
             x = (x - u) / torch.sqrt(s + self.eps)
             x = self.weight[:, None, None] * x + self.bias[:, None, None]
             return x
+
+class FilterNorm(nn.Module):
+    def __init__(self, dim, running_std=False, running_mean=False, resolution=None):
+        super().__init__()
+        self.eps = 1E-12
+
+        self.out_std = nn.Parameter(torch.ones(1, dim, *resolution)*.02) if running_std else 1.
+        self.out_mean = nn.Parameter(torch.zeros(1, dim, *resolution)*1.) if running_mean else .0
+
+    def forward(self, x):
+        # Norm
+        u = x.mean(dim=(1,2,3), keepdim=True)
+        s = (x - u).pow(2).mean(dim=(1,2,3), keepdim=True)
+        x = (x - u) / torch.sqrt(s + self.eps)
+
+        # Trans
+        x = x * self.out_std + self.out_mean
+        return x
