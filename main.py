@@ -39,6 +39,15 @@ import models.convnext_gcc_cvx_lg_res
 import models.convnext_gcc_cvx_test
 # dygcc
 import models.convnext_dygcc_cvx
+import models.convnext_dygcc_dype_v0
+import models.convnext_dygcc_dype_v1
+import models.convnext_dygcc_dype_v2
+import models.convnext_dygcc_dype_v3
+# other models
+import models.convnext_gc
+import models.mv2, models.mv2_gcc
+import models.resnet, models.resnet_gcc
+import models.resnet, models.resnet_gcc
 
 def str2bool(v):
     """

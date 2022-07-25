@@ -22,7 +22,8 @@ class gcc_Conv2d(nn.Module):
         if self.bias is not None:
             nn.init.constant_(self.bias, 0)
         if self.meta_pe is not None:
-            trunc_normal_(self.meta_pe, std=.02)
+            # trunc_normal_(self.meta_pe, std=.02)
+            nn.init.constant_(self.meta_pe, 0)
 
     def get_instance_kernel(self, instance_kernel_size_2):
         # if no use of dynamic resolution, keep a static kernel

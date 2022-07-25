@@ -14,6 +14,42 @@ class Reshape(nn.Module):
         new_shape = (x.shape[0], *self.shape) if self.keep_batch else self.shape
         return x.view(new_shape)
 
+class ChannelPooling(nn.Module):
+    def __init__(self, mode='MAX'):
+        super().__init__()
+        self.mode = mode
+    
+    def forward(self, x):
+        if self.mode == 'MAX':
+            x = x.max(dim=1, keepdim=True)
+            # B, 1, H, W
+        elif self.mode == 'MEAN':
+            x = x.mean(dim=1, keepdim=True)
+            # B, 1, H, W
+        elif self.mode == 'MAX-MEAN':
+            x = torch.cat([x.max(dim=1, keepdim=True), x.mean(dim=1, keepdim=True)], dim=1)
+            # B, 2, H, W
+        return x
+
+class SpatialPooling(nn.Module):
+    def __init__(self, mode='MAX'):
+        super().__init__()
+        self.mode = mode
+    
+    def forward(self, x):
+        B, C, H, W = x.shape
+        x = x.view(B, C, H*W)
+        # B, C, H*W
+        if self.mode == 'MAX':
+            # B, C, 1
+            x = x.max(dim=2, keepdim=True)
+        elif self.mode == 'MEAN':
+            # B, C, 1
+            x = x.mean(dim=2, keepdim=True)
+        elif self.mode == 'MAX-MEAN':
+            # B, C, 2
+            x = torch.cat([x.max(dim=2, keepdim=True), x.mean(dim=2, keepdim=True)], dim=2)
+        return x
 
 class kernel_gen(nn.Module):
     def __init__(self, channel, kernel_size, type='H', gen_type="FC", act="HardSigmoid", reduction=4):
@@ -42,7 +78,7 @@ class kernel_gen(nn.Module):
                 # B, C*H -> B, C, H, 1
                 Reshape(shape=(channel, *kernel_size_2), keep_batch=True),
                 # FilterNorm
-                FilterNorm(channel, running_std=True, running_mean=True, resolution=kernel_size_2)
+                FilterNorm(channel, running_std=True, running_mean=False, resolution=kernel_size_2)
             )
         elif gen_type == "CONV":
             self.gen = nn.Sequential(
@@ -51,7 +87,7 @@ class kernel_gen(nn.Module):
                 activation,
                 nn.Conv2d(channel//reduction, channel, kernel_size=gen_kernel_size_2, padding=gen_kernel_padding_2, bias=False, groups=1),
                 # FilterNorm
-                FilterNorm(channel, running_std=True, running_mean=True, resolution=kernel_size_2)
+                FilterNorm(channel, running_std=True, running_mean=False, resolution=kernel_size_2)
             )
         elif gen_type == "DW_CONV":
             self.gen = nn.Sequential(
@@ -60,16 +96,24 @@ class kernel_gen(nn.Module):
                 activation,
                 nn.Conv2d(channel, channel, kernel_size=gen_kernel_size_2, padding=gen_kernel_padding_2, bias=False, groups=channel),
                 # FilterNorm
-                FilterNorm(channel, running_std=True, running_mean=True, resolution=kernel_size_2)
+                FilterNorm(channel, running_std=True, running_mean=False, resolution=kernel_size_2)
+            )
+        elif gen_type == "CONV_MEANPOOLING":
+            self.gen = nn.Sequential(
+                ChannelPooling(mode='MEAN'),
+                nn.Conv2d(1, channel//reduction, kernel_size=gen_kernel_size_2, padding=gen_kernel_padding_2, bias=False, groups=1),
+                nn.BatchNorm2d(channel//reduction),
+                activation,
+                nn.Conv2d(channel//reduction, channel, kernel_size=gen_kernel_size_2, padding=gen_kernel_padding_2, bias=False, groups=1),
+                # FilterNorm
+                FilterNorm(channel, running_std=True, running_mean=False, resolution=kernel_size_2)
             )
         # GAP
         self.gap = nn.AdaptiveAvgPool2d(1)
 
     # Notice: ConvNext Outer Model will init these weights since they are normal FC nad Conv
+    # ...but FilterNorm should be inited here by hand
     # def gcc_init(self):
-    #     for name, module in self.gen.named_modules:
-    #         if "weight" in name and len(module.weight.shape) == 4:
-    #             trunc_normal_(module.weight, std=.02)
 
     def forward(self, x):
         glob_info = self.gap(x)
@@ -92,10 +136,10 @@ class dygcc_Conv2d(nn.Module):
         self.dim = dim
         self.instance_kernel_method = instance_kernel_method
         self.meta_kernel_size_2 = (meta_kernel_size, 1) if self.type=='H' else (1, meta_kernel_size)
-        self.weight_gen = kernel_gen(dim, meta_kernel_size, type=type, gen_type='CONV', act="Hardswish", reduction=4)
+        self.weight_gen = kernel_gen(dim, meta_kernel_size, type=type, gen_type='CONV_MEANPOOLING', act="Hardswish", reduction=4)
         # self.weight  = nn.Conv2d(dim, dim, kernel_size=self.meta_kernel_size_2, groups=dim).weight
         self.bias    = nn.Parameter(torch.zeros(dim)*1.) if bias else None
-        self.meta_pe = nn.Parameter(torch.zeros(1, dim, *self.meta_kernel_size_2)*1.) if use_pe else None
+        self.meta_pe = nn.Parameter(torch.randn(1, dim, *self.meta_kernel_size_2)) if use_pe else None
 
     def gcc_init(self):
         # trunc_normal_(self.weight, std=.02)
