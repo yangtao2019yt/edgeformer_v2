@@ -5,14 +5,14 @@ from timm.models.layers import trunc_normal_, DropPath
 from timm.models.registry import register_model
 
 class gen(nn.Module):
-    def __init__(self, channel, reduction=4):
+    def __init__(self, channel, out_channel, reduction=4):
         super().__init__()
         # Gen block
         self.gen = nn.Sequential(
             nn.Conv2d(channel, channel//reduction, kernel_size=3, padding=1, bias=False, groups=1),
             nn.BatchNorm2d(channel//reduction),
             nn.ReLU(inplace=True),
-            nn.Conv2d(channel//reduction, channel, kernel_size=3, padding=1, groups=1),
+            nn.Conv2d(channel//reduction, out_channel, kernel_size=3, padding=1, groups=1),
         )
 
     def forward(self, x):
@@ -32,8 +32,8 @@ class dygcc_dype_v3_Block(nn.Module):
         super().__init__()
         self.use_pe = use_pe
         self.dim = dim
-        self.pe_gen = gen(dim, reduction=reduction) if use_pe else None
-        self.kernel_gen = gen(dim, reduction=reduction)
+        self.pe_gen = gen(dim, dim, reduction=reduction) if use_pe else None
+        self.kernel_gen = gen(dim, dim, reduction=reduction)
         self.bias = nn.Parameter(torch.zeros(dim)*1.)
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
@@ -51,7 +51,8 @@ class dygcc_dype_v3_Block(nn.Module):
         if self.use_pe:
             HW_pe = self.pe_gen(x)
             x = x + HW_pe
-        H_weight, W_weight = torch.chunk(self.kernel_gen(x), 2, dim=1)
+        HW_weight = self.kernel_gen(x)
+        H_weight, W_weight = torch.chunk(HW_weight, 2, dim=1)
         H_weight, W_weight = H_weight.mean(dim=3), W_weight.mean(dim=2)
     
         # token mixer
@@ -194,8 +195,20 @@ class ConvNeXt_dygcc_dype_v3(nn.Module):
         return self.norm(x.mean([-2, -1])) # global average pooling, (N, C, H, W) -> (N, C)
 
     def forward(self, x):
+        img = x
+
         x = self.forward_features(x)
         x = self.head(x)
+        
+        if self.training == False:
+            import numpy as np
+            import random
+            from matplotlib import pyplot as plt
+            N = 8
+            selected = np.random.choice(range(4096), 8, replace=False)
+            for i in range(8):
+                plt.imshow(x)
+                exit(1)
         return x
 
 @register_model

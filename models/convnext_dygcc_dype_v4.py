@@ -5,37 +5,20 @@ from timm.models.layers import trunc_normal_, DropPath
 from timm.models.registry import register_model
 
 class gen(nn.Module):
-    def __init__(self, channel):
+    def __init__(self, channel, reduction=4):
         super().__init__()
         # Gen block
         self.gen = nn.Sequential(
-            nn.Conv2d(channel, channel, kernel_size=3, padding=1, bias=False, groups=channel),
-            nn.BatchNorm2d(channel),
+            nn.Conv2d(channel, channel//reduction, kernel_size=3, padding=1, bias=False, groups=1, dilation=2, stride=1),
+            nn.BatchNorm2d(channel//reduction),
             nn.ReLU(inplace=True),
-            nn.Conv2d(channel, channel, kernel_size=3, padding=1, groups=channel),
+            nn.ConvTranspose2d(channel//reduction, channel, kernel_size=3, padding=1, groups=1, dilation=2, stride=1),
         )
 
     def forward(self, x):
         return self.gen(x)
 
-class big_kernel_gen(nn.Module):
-    def __init__(self, channel, big_kernel_size, type='H'):
-        super().__init__()
-        assert big_kernel_size % 2 == 1 # big_kernel_size should be odd, for padding on both sides
-        self.big_kernel_size_2 = (big_kernel_size, 1) if type == 'H' else (1, big_kernel_size)
-        self.padding_2 = ((big_kernel_size-1)//2, 1) if type == 'H' else (1, (big_kernel_size-1)//2)
-        # Gen block
-        self.big_kernel_gen = nn.Sequential(
-            nn.Conv2d(channel, channel, kernel_size=self.big_kernel_size_2, padding=self.padding_2, bias=False, groups=channel),
-            nn.BatchNorm2d(channel),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(channel, channel, kernel_size=self.big_kernel_size_2, padding=self.padding_2, groups=channel),
-        )
-
-    def forward(self, x):
-        return self.big_kernel_gen(x)
-
-class dygcc_dype_v2_Block(nn.Module):
+class dygcc_dype_v4_Block(nn.Module):
     def __init__(self,
         dim,
         drop_path=0.,
@@ -44,13 +27,12 @@ class dygcc_dype_v2_Block(nn.Module):
         instance_kernel_method=None,
         use_pe=True
     ):
+        reduction = 16
+
         super().__init__()
         self.use_pe = use_pe
         self.dim = dim
-        big_kernel_size = meta_kernel_size-1 if meta_kernel_size%2 == 0 else meta_kernel_size
-        self.pe_gen_H = big_kernel_gen(dim, big_kernel_size, type='H') if use_pe else None
-        self.pe_gen_W = big_kernel_gen(dim, big_kernel_size, type='W') if use_pe else None
-        self.kernel_gen_H, self.kernel_gen_W = gen(dim), gen(dim)
+        self.kp_gen = gen(dim, 2 * dim if use_pe else dim, reduction=reduction)
         self.bias = nn.Parameter(torch.zeros(dim)*1.)
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
@@ -66,10 +48,12 @@ class dygcc_dype_v2_Block(nn.Module):
         
         # generate pe and weights
         if self.use_pe:
-            H_pe, W_pe = self.pe_gen_H(x), self.pe_gen_W(x)
-        H_weight, W_weight = self.kernel_gen_H(x).mean(dim=3), self.kernel_gen_W(x).mean(dim=2)
-        if self.use_pe:
-            x =  x + H_pe + W_pe
+            HW_pe, HW_weight = torch.chunk(self.kp_gen(x), 2, dim=1)
+            x = x + HW_pe
+        else:
+            HW_weight = self.kp_gen(x)
+        H_weight, W_weight = torch.chunk(HW_weight, 2, dim=1)
+        H_weight, W_weight = H_weight.mean(dim=3), W_weight.mean(dim=2)
     
         # token mixer
         x_1, x_2 = torch.chunk(x, 2, dim=1)
@@ -147,7 +131,7 @@ class LayerNorm(nn.Module):
             x = self.weight[:, None, None] * x + self.bias[:, None, None]
             return x
 
-class ConvNeXt_dygcc_dype_v2(nn.Module):
+class ConvNeXt_dygcc_dype_v4(nn.Module):
     def __init__(self, in_chans=3, num_classes=1000, 
                  depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], drop_path_rate=0., 
                  layer_scale_init_value=1e-6, head_init_scale=1.
@@ -180,9 +164,9 @@ class ConvNeXt_dygcc_dype_v2(nn.Module):
             else:       # for stage 2 and 3, gcc modules is used
                 # e.g. in stage3, j+1=7 > lo=2*9//3=6, so block 678 is gcc_block, while block 0-5 is normal
                 stage = nn.Sequential(*[
-                    dygcc_dype_v2_Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value,
+                    dygcc_dype_v4_Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value,
                         meta_kernel_size=stages_fs[i], instance_kernel_method=None, \
-                        use_pe=(((i==2)&(j==6))|((i==3)&(j==2)))
+                        use_pe=(((i==2)&(j==7))|((i==3)&(j==2)))
                     )\
                     if 2*depths[i]//3 < j+1 else \
                     Block(dim=dims[i], drop_path=dp_rates[cur + j], layer_scale_init_value=layer_scale_init_value) \
@@ -216,8 +200,8 @@ class ConvNeXt_dygcc_dype_v2(nn.Module):
         return x
 
 @register_model
-def convnext_dygcc_dype_v2_tt(pretrained=False, in_22k=False, **kwargs):
-    model = ConvNeXt_dygcc_dype_v2(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], **kwargs)
+def convnext_dygcc_dype_v4_tt(pretrained=False, in_22k=False, **kwargs):
+    model = ConvNeXt_dygcc_dype_v4(depths=[3, 3, 9, 3], dims=[48, 96, 192, 384], **kwargs)
     if pretrained or in_22k:
         raise NotImplementedError("no pretrained model")
     return model

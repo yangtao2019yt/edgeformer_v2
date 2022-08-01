@@ -4,10 +4,37 @@ import torch.nn.functional as F
 from timm.models.layers import trunc_normal_, DropPath
 from timm.models.registry import register_model
 
-class kp_gen(nn.Module):
-    def __init__(self, channel, use_pe, K, reduction=4):
+class Reshape(nn.Module):
+    def __init__(self, shape, keep_batch=True):
         super().__init__()
-        self.KK = 2*K if use_pe else K
+        self.keep_batch = keep_batch
+        self.shape = shape
+    
+    def forward(self, x):
+        new_shape = (x.shape[0], *self.shape) if self.keep_batch else self.shape
+        return x.view(new_shape)
+
+class FilterNorm(nn.Module):
+    def __init__(self, dim, running_std=False, running_mean=False, resolution=None):
+        super().__init__()
+        self.eps = 1E-12
+
+        self.out_std = nn.Parameter(torch.ones(1, dim, *resolution)*.02) if running_std else 1.
+        self.out_mean = nn.Parameter(torch.zeros(1, dim, *resolution)*1.) if running_mean else .0
+
+    def forward(self, x):
+        # Norm
+        u = x.mean(dim=(1,2,3), keepdim=True)
+        s = (x - u).pow(2).mean(dim=(1,2,3), keepdim=True)
+        x = (x - u) / torch.sqrt(s + self.eps)
+
+        # Trans
+        x = x * self.out_std + self.out_mean
+        return x
+
+class kp_gen(nn.Module):
+    def __init__(self, channel, out_channel, K, reduction=4):
+        super().__init__()
         # Gen block
         self.kp_gen = nn.Sequential(
             # B, C, H, W -> B, C, 1, 1
@@ -16,9 +43,12 @@ class kp_gen(nn.Module):
             nn.Conv2d(channel, channel//reduction, kernel_size=1, bias=False, groups=1),
             nn.BatchNorm2d(channel//reduction),
             nn.ReLU(inplace=True),
-            # B, C//r, 1, 1 -> B, C*(H+W)*2, 1, 1
-            nn.Conv2d(channel//reduction, channel*self.KK, kernel_size=1, groups=1),
-            nn.Sigmoid()
+            # B, C//r, 1, 1 -> B, C*K*2, 1, 1
+            nn.Conv2d(channel//reduction, out_channel*K, kernel_size=1, groups=1),
+            # B, C*K*2, 1, 1 -> B, C*2, K, 1
+            Reshape(shape=(out_channel, K, 1), keep_batch=True),
+            # FilterNorm
+            FilterNorm(out_channel, running_std=True, running_mean=True, resolution=(K, 1))
         )
 
     def forward(self, x):
@@ -38,7 +68,7 @@ class dygcc_dype_v0_Block(nn.Module):
         super().__init__()
         self.use_pe = use_pe
         self.dim = dim
-        self.kp_gen = kp_gen(dim, use_pe, meta_kernel_size, reduction=reduction)
+        self.kp_gen = kp_gen(dim, 2 * dim if use_pe else dim, meta_kernel_size, reduction=reduction)
         self.bias = nn.Parameter(torch.zeros(dim)*1.)
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers

@@ -43,6 +43,12 @@ import models.convnext_dygcc_dype_v0
 import models.convnext_dygcc_dype_v1
 import models.convnext_dygcc_dype_v2
 import models.convnext_dygcc_dype_v3
+import models.convnext_dygcc_dype_v4
+import models.convnext_dygcc_dype_v5
+import models.convnext_dygcc_dype_v6
+import models.convnext_dygcc_dype_v7
+import models.convnext_dygcc_dype_v8
+import models.convnext_dygcc_dype_v9
 # other models
 import models.convnext_gc
 import models.mv2, models.mv2_gcc
